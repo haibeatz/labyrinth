@@ -392,49 +392,74 @@
         role = null;
         roomCode = roomName;
 
-        // Пытаемся занять это имя комнаты на сервере
-        peer = new Peer('lab-room-custom-' + roomName, { debug: 0 });
+        // Список публичных PeerJS серверов для перебора
+        const PEER_SERVERS = [
+            { host: '0.peerjs.com', port: 443, path: '/', secure: true },
+            { host: 'peerjs.fly.dev', port: 443, path: '/', secure: true },
+        ];
+        let serverIndex = 0;
 
-        peer.on('open', () => {
-            // Если open сработал — имя было свободно! Мы ХОСТ.
-            role = 'HOST';
-            status.innerText = `КОМНАТА "${roomName.toUpperCase()}" СОЗДАНА. ОЖИДАНИЕ ИГРОКА 2...`;
-            status.className = 'wait';
-        });
-
-        peer.on('connection', (connection) => {
-            // Если мы ХОСТ, а игра уже началась, и кто-то ломится третий:
-            if (gameState !== 'LOBBY') {
-                connection.on('open', () => {
-                    connection.send({ type: 'room-full' });
-                    setTimeout(() => connection.close(), 500);
-                });
+        function tryConnect(asHost, peerId) {
+            if (serverIndex >= PEER_SERVERS.length) {
+                unlockLobby('ОШИБКА СЕТИ. ПРОВЕРЬ ИНТЕРНЕТ И ПОПРОБУЙ СНОВА.');
                 return;
             }
-            conn = connection;
-            setupConnectionHandlers();
-        });
+            const srv = PEER_SERVERS[serverIndex];
+            const cfg = { ...srv, debug: 0 };
 
-        peer.on('error', (err) => {
-            // Если сервер сказал, что ID занят — значит комната есть! Мы КЛИЕНТ.
-            if (err.type === 'unavailable-id') {
-                peer.destroy(); // Сбрасываем хостовый инстанс
+            status.innerText = `ПОДКЛЮЧЕНИЕ К СЕРВЕРУ ${serverIndex + 1}/${PEER_SERVERS.length}...`;
 
-                // Создаем обычный пир с рандомным ID и подключаемся к созданной комнате
-                peer = new Peer({ debug: 0 });
-                peer.on('open', () => {
+            if (peer) { try { peer.destroy(); } catch(e){} }
+            peer = peerId ? new Peer(peerId, cfg) : new Peer(cfg);
+
+            // Таймаут — если сервер не отвечает за 8 секунд
+            const timeoutId = setTimeout(() => {
+                serverIndex++;
+                tryConnect(asHost, peerId);
+            }, 8000);
+
+            peer.on('open', () => {
+                clearTimeout(timeoutId);
+                if (asHost) {
+                    role = 'HOST';
+                    status.innerText = `КОМНАТА "${roomName.toUpperCase()}" СОЗДАНА. ОЖИДАНИЕ ИГРОКА 2...`;
+                    status.className = 'wait';
+
+                    peer.on('connection', (connection) => {
+                        if (gameState !== 'LOBBY') {
+                            connection.on('open', () => {
+                                connection.send({ type: 'room-full' });
+                                setTimeout(() => connection.close(), 500);
+                            });
+                            return;
+                        }
+                        conn = connection;
+                        setupConnectionHandlers();
+                    });
+                } else {
                     status.innerText = `КОМНАТА НАЙДЕНА. ПОДКЛЮЧЕНИЕ...`;
                     conn = peer.connect('lab-room-custom-' + roomName);
                     setupConnectionHandlers();
-                });
+                }
+            });
 
-                peer.on('error', (clientErr) => {
-                    unlockLobby('ОШИБКА КЛИЕНТСКОГО ПОДКЛЮЧЕНИЯ.');
-                });
-            } else {
-                unlockLobby('ОШИБКА СЕТИ. ПОПРОБУЙТЕ СНОВА.');
-            }
-        });
+            peer.on('error', (err) => {
+                clearTimeout(timeoutId);
+                if (err.type === 'unavailable-id') {
+                    // Комната занята — подключаемся как клиент
+                    serverIndex = 0;
+                    tryConnect(false, null);
+                } else if (err.type === 'network' || err.type === 'disconnected' || err.type === 'server-error') {
+                    // Сервер недоступен — пробуем следующий
+                    serverIndex++;
+                    tryConnect(asHost, peerId);
+                } else {
+                    unlockLobby(`ОШИБКА: ${err.type || 'СЕТИ'}. ПОПРОБУЙ СНОВА.`);
+                }
+            });
+        }
+
+        tryConnect(true, 'lab-room-custom-' + roomName);
     });
 
     function unlockLobby(msg) {
