@@ -1,0 +1,880 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Лабиринт - Ретро Терминал</title>
+    <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+            border-radius: 0 !important;
+            transition: none !important;
+            user-select: none;
+        }
+
+        body {
+            background-color: #000000;
+            color: #00FF00;
+            font-family: 'Courier New', Courier, monospace;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-shadow: 0 0 5px #00FF00;
+            min-height: 100vh;
+        }
+
+        h1, h2, h3 {
+            margin: 0 0 15px 0;
+            font-weight: bold;
+        }
+
+        .btn {
+            border: 2px solid #00FF00;
+            background: #000000;
+            color: #00FF00;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 14px;
+            font-weight: bold;
+            padding: 6px 16px;
+            cursor: pointer;
+            text-transform: uppercase;
+            text-shadow: 0 0 5px #00FF00;
+            box-shadow: 0 0 5px #00FF00 inset, 0 0 5px #00FF00;
+            margin-right: 10px;
+        }
+
+        .btn:hover, .btn.active {
+            background: #00FF00;
+            color: #000000;
+            text-shadow: none;
+            box-shadow: none;
+        }
+
+        .btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            pointer-events: none;
+        }
+
+        input[type="text"] {
+            border: 2px solid #00FF00;
+            background: #000000;
+            color: #00FF00;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 16px;
+            font-weight: bold;
+            padding: 6px 10px;
+            text-shadow: 0 0 5px #00FF00;
+            box-shadow: 0 0 5px #00FF00 inset;
+            outline: none;
+            text-transform: uppercase;
+            width: 250px;
+            text-align: center;
+        }
+
+        .error { color: #FF0000; text-shadow: 0 0 5px #FF0000; }
+        .wait { color: #FFFF00; text-shadow: 0 0 5px #FFFF00; }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(6, 64px);
+            grid-template-rows: repeat(6, 64px);
+            gap: 0;
+            width: 388px;
+            height: 388px;
+            border: 2px solid #00FF00;
+            background-color: #000000;
+            position: relative;
+        }
+
+        .cell {
+            width: 64px;
+            height: 64px;
+            border: 1px dotted #003300;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 32px;
+            font-weight: bold;
+            color: #00FF00;
+        }
+
+        .fog {
+            background-color: #000000;
+            background-image: radial-gradient(#003300 1px, transparent 1px);
+            background-size: 4px 4px;
+        }
+
+        .cell-visited {
+            background-color: #000000;
+            background-image: none;
+        }
+
+        .wall-vis {
+            position: absolute;
+            background: #00FF00;
+            box-shadow: 0 0 5px #00FF00;
+            z-index: 5;
+            pointer-events: none;
+        }
+        .wall-top { top: -2.5px; left: 0; width: 100%; height: 5px; }
+        .wall-bottom { bottom: -2.5px; left: 0; width: 100%; height: 5px; }
+        .wall-left { top: 0; left: -2.5px; width: 5px; height: 100%; }
+        .wall-right { top: 0; right: -2.5px; width: 5px; height: 100%; }
+
+        .zone {
+            position: absolute;
+            pointer-events: all;
+            z-index: 10;
+            cursor: crosshair;
+        }
+        .zone-top { top: 0; left: 0; width: 100%; height: 12px; }
+        .zone-bottom { bottom: 0; left: 0; width: 12px; height: 100%; }
+        .zone-left { top: 0; left: 0; width: 12px; height: 100%; }
+        .zone-right { top: 0; right: 0; width: 12px; height: 100%; }
+
+        .player {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: #000000;
+            color: #FFFFFF;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 32px;
+            font-weight: bold;
+            text-shadow: none;
+            z-index: 20;
+            pointer-events: none;
+        }
+
+        @keyframes blink {
+            0% { visibility: visible; }
+            50% { visibility: hidden; }
+            100% { visibility: visible; }
+        }
+        .blink {
+            animation: blink 0.6s step-end infinite;
+        }
+
+        .path-p1 {
+            background-color: #000000 !important;
+            color: #00FF00 !important;
+            box-shadow: inset 0 0 0 2px #00FF00;
+        }
+        .path-p2 {
+            background-color: #000000;
+            background-image: 
+                repeating-linear-gradient(45deg, #000 25%, transparent 25%, transparent 75%, #000 75%, #000), 
+                repeating-linear-gradient(45deg, #000 25%, #fff 25%, #fff 75%, #000 75%, #000);
+            background-position: 0 0, 2px 2px;
+            background-size: 4px 4px;
+        }
+
+        .screen { display: none; width: 100%; max-width: 900px; }
+        .screen.active { display: block; }
+
+        .toolbar {
+            display: flex;
+            align-items: center;
+            margin-bottom: 20px;
+            border: 2px solid #00FF00;
+            padding: 10px;
+        }
+
+        .boards-container {
+            display: flex;
+            justify-content: center;
+            gap: 40px;
+        }
+
+        .board-wrapper {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .logs-box {
+            border: 2px solid #00FF00;
+            padding: 10px;
+            height: 120px;
+            margin-top: 20px;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            font-size: 14px;
+            box-shadow: 0 0 5px #00FF00 inset;
+        }
+
+        #disconnect-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.95);
+            z-index: 9999;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            color: #FF0000;
+            font-size: 32px;
+            font-weight: bold;
+            text-shadow: 0 0 10px #FF0000;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="disconnect-overlay">
+        <div>СВЯЗЬ ПОТЕРЯНА</div>
+        <div style="font-size: 18px; margin-top: 20px; color: #00FF00; text-shadow: none;">Перезагрузи страницу</div>
+    </div>
+
+    <!-- ТУТ НОВЫЙ УПРОЩЕННЫЙ ИНТЕРФЕЙС ЛОББИ -->
+    <div id="lobby-screen" class="screen active" style="text-align: center; margin-top: 10vh;">
+        <h1 style="font-size: 64px; margin-bottom: 40px;">ЛАБИРИНТ</h1>
+        
+        <div style="margin-bottom: 30px; display: flex; flex-direction: column; align-items: center; gap: 15px;">
+            <input type="text" id="room-input" placeholder="НАЗВАНИЕ КОМНАТЫ" minlength="4" maxlength="16">
+            <button id="btn-ok" class="btn" style="margin: 0; width: 120px; padding: 10px;">ОК</button>
+        </div>
+
+        <div id="lobby-status" class="wait">Введите имя комнаты от 4 до 16 символов</div>
+    </div>
+
+    <div id="prep-screen" class="screen">
+        <h2>ФАЗА ПОДГОТОВКИ</h2>
+        <div class="toolbar">
+            <button id="mode-o" class="btn active">[ O ВХОД ]</button>
+            <button id="mode-x" class="btn">[ X ВЫХОД ]</button>
+            <button id="mode-wall" class="btn">[ СТЕНА ]</button>
+            <span id="wall-counter" style="margin-left: auto; font-size: 18px; font-weight: bold;">СТЕН: 0 / 20</span>
+        </div>
+        
+        <div style="display: flex; flex-direction: column; align-items: center;">
+            <div id="prep-grid" class="grid"></div>
+            <div id="prep-error" class="error" style="height: 20px; margin: 15px 0;"></div>
+            
+            <button id="btn-ready" class="btn" style="font-size: 18px; padding: 10px 40px;">ГОТОВ</button>
+            <div id="prep-status" class="wait" style="margin-top: 15px; height: 20px;"></div>
+        </div>
+    </div>
+
+    <div id="game-screen" class="screen">
+        <div id="game-status" style="font-size: 18px; margin-bottom: 15px; font-weight: bold; text-align: center;"></div>
+        
+        <div class="boards-container">
+            <div class="board-wrapper">
+                <h3>АТАКА (Карта соперника)</h3>
+                <div id="attack-grid" class="grid"></div>
+            </div>
+            <div class="board-wrapper">
+                <h3>ОБОРОНА (Твоя карта)</h3>
+                <div id="defense-grid" class="grid"></div>
+            </div>
+        </div>
+
+        <div class="logs-box" id="game-logs"></div>
+    </div>
+
+    <div id="final-screen" class="screen" style="text-align: center;">
+        <h1 id="final-title" style="font-size: 64px;"></h1>
+        
+        <div class="boards-container" style="margin-top: 30px;">
+            <div class="board-wrapper">
+                <h3 id="final-label-1">ЛАБИРИНТ ИГРОКА 1</h3>
+                <div id="final-grid-1" class="grid"></div>
+            </div>
+            <div class="board-wrapper">
+                <h3 id="final-label-2">ЛАБИРИНТ ИГРОКА 2</h3>
+                <div id="final-grid-2" class="grid"></div>
+            </div>
+        </div>
+
+        <div style="margin-top: 40px;">
+            <button id="btn-rematch" class="btn" style="font-size: 18px; padding: 10px 40px;">РЕВАНШ</button>
+        </div>
+        <div id="final-status" class="wait" style="margin-top: 15px; height: 20px;"></div>
+    </div>
+
+<script>
+    let peer = null;
+    let conn = null;
+    let role = null; 
+    let roomCode = '';
+    
+    let gameState = 'LOBBY'; 
+    let prepMode = 'O'; 
+    
+    let myGrid = [];
+    let myEntry = { r: -1, c: -1 };
+    let myExit = { r: -1, c: -1 };
+    let myWallCount = 0;
+    let myReady = false;
+    let myPos = { r: -1, c: -1 };
+    let myPath = [];
+    
+    let oppGrid = [];
+    let oppEntry = { r: -1, c: -1 };
+    let oppExit = { r: -1, c: -1 };
+    let oppReady = false;
+    let oppPos = { r: -1, c: -1 };
+    let oppPath = [];
+    
+    let isMyTurn = false;
+    let attackVisited = {};
+    let attackDiscoveredWalls = {};
+    let gameLogs = [];
+
+    function createEmptyGrid() {
+        let grid = [];
+        for (let r = 0; r < 6; r++) {
+            let row = [];
+            for (let c = 0; c < 6; c++) {
+                row.push({ top: false, bottom: false, left: false, right: false });
+            }
+            grid.push(row);
+        }
+        return grid;
+    }
+
+    function resetGameState() {
+        myGrid = createEmptyGrid();
+        myEntry = { r: -1, c: -1 };
+        myExit = { r: -1, c: -1 };
+        myWallCount = 0;
+        myReady = false;
+        myPos = { r: -1, c: -1 };
+        myPath = [];
+        
+        oppGrid = createEmptyGrid();
+        oppEntry = { r: -1, c: -1 };
+        oppExit = { r: -1, c: -1 };
+        oppReady = false;
+        oppPos = { r: -1, c: -1 };
+        oppPath = [];
+
+        attackVisited = {};
+        attackDiscoveredWalls = {};
+        gameLogs = [];
+        prepMode = 'O';
+        
+        document.getElementById('prep-error').innerText = '';
+        document.getElementById('prep-status').innerText = '';
+        document.getElementById('final-status').innerText = '';
+        document.getElementById('btn-ready').disabled = false;
+        
+        updatePrepUI();
+    }
+
+    /* ==========================================
+       УМНАЯ ЛОГИКА ПОДКЛЮЧЕНИЯ (УБРАЛИ СТАРЫЕ КНОПКИ)
+    ========================================== */
+    document.getElementById('btn-ok').addEventListener('click', () => {
+        let roomInput = document.getElementById('room-input');
+        let roomName = roomInput.value.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+
+        if (roomName.length < 4 || roomName.length > 16) {
+            showLobbyError('ИМЯ ДОЛЖНО БЫТЬ ОТ 4 ДО 16 СИМВОЛОВ (АЛФАВИТ/ЦИФРЫ)!');
+            return;
+        }
+
+        // Лочим кнопки на время коннекта
+        roomInput.disabled = true;
+        document.getElementById('btn-ok').disabled = true;
+        
+        let status = document.getElementById('lobby-status');
+        status.innerText = 'ПРОВЕРКА КОМНАТЫ...';
+        status.className = 'wait';
+
+        if (peer) peer.destroy();
+        role = null;
+        roomCode = roomName;
+
+        // Пытаемся занять это имя комнаты на сервере
+        peer = new Peer('lab-room-custom-' + roomName, { debug: 0 });
+
+        peer.on('open', () => {
+            // Если open сработал — имя было свободно! Мы ХОСТ.
+            role = 'HOST';
+            status.innerText = `КОМНАТА "${roomName.toUpperCase()}" СОЗДАНА. ОЖИДАНИЕ ИГРОКА 2...`;
+            status.className = 'wait';
+        });
+
+        peer.on('connection', (connection) => {
+            // Если мы ХОСТ, а игра уже началась, и кто-то ломится третий:
+            if (gameState !== 'LOBBY') {
+                connection.on('open', () => {
+                    connection.send({ type: 'room-full' });
+                    setTimeout(() => connection.close(), 500);
+                });
+                return;
+            }
+            conn = connection;
+            setupConnectionHandlers();
+        });
+
+        peer.on('error', (err) => {
+            // Если сервер сказал, что ID занят — значит комната есть! Мы КЛИЕНТ.
+            if (err.type === 'unavailable-id') {
+                peer.destroy(); // Сбрасываем хостовый инстанс
+
+                // Создаем обычный пир с рандомным ID и подключаемся к созданной комнате
+                peer = new Peer({ debug: 0 });
+                peer.on('open', () => {
+                    status.innerText = `КОМНАТА НАЙДЕНА. ПОДКЛЮЧЕНИЕ...`;
+                    conn = peer.connect('lab-room-custom-' + roomName);
+                    setupConnectionHandlers();
+                });
+
+                peer.on('error', (clientErr) => {
+                    unlockLobby('ОШИБКА КЛИЕНТСКОГО ПОДКЛЮЧЕНИЯ.');
+                });
+            } else {
+                unlockLobby('ОШИБКА СЕТИ. ПОПРОБУЙТЕ СНОВА.');
+            }
+        });
+    });
+
+    function unlockLobby(msg) {
+        document.getElementById('room-input').disabled = false;
+        document.getElementById('btn-ok').disabled = false;
+        showLobbyError(msg);
+    }
+
+    function showLobbyError(msg) {
+        let status = document.getElementById('lobby-status');
+        status.innerText = msg;
+        status.className = 'error';
+    }
+
+    function setupConnectionHandlers() {
+        conn.on('open', () => {
+            document.getElementById('lobby-status').innerText = 'СВЯЗЬ УСТАНОВЛЕНА! НАЧАЛО...';
+            document.getElementById('lobby-status').className = '';
+            document.getElementById('lobby-status').style.color = '#00FF00';
+            
+            setTimeout(() => {
+                switchScreen('PREP');
+                resetGameState();
+                renderPrep();
+            }, 1500);
+        });
+
+        conn.on('data', (data) => {
+            // Защита от третьих лишних
+            if (data.type === 'room-full') {
+                unlockLobby('ЭТА КОМНАТА УЖЕ ЗАНЯТА ИДЕТ ИГРА!');
+                if (conn) conn.close();
+                if (peer) peer.destroy();
+                return;
+            }
+            
+            if (data.type === 'ready') {
+                oppEntry = data.entry;
+                oppExit = data.exit;
+                oppGrid = rebuildGridFromWalls(data.walls);
+                oppReady = true;
+                checkGameStart();
+            } else if (data.type === 'move') {
+                handleOpponentMove(data.r, data.c);
+            } else if (data.type === 'win') {
+                endGame('LOSE');
+            } else if (data.type === 'rematch') {
+                oppReady = false; 
+                if (myReady === false) { 
+                    startRematch();
+                } else {
+                    document.getElementById('final-status').innerText = 'Соперник хочет реванш!';
+                }
+            }
+        });
+
+        conn.on('close', () => {
+            document.getElementById('disconnect-overlay').style.display = 'flex';
+        });
+    }
+
+    /* ==========================================
+       ОСТАЛЬНАЯ ЛОГИКА ИГРЫ (БЕЗ ИЗМЕНЕНИЙ)
+    ========================================== */
+    function switchScreen(state) {
+        gameState = state;
+        document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+        if (state === 'LOBBY') document.getElementById('lobby-screen').classList.add('active');
+        if (state === 'PREP') document.getElementById('prep-screen').classList.add('active');
+        if (state === 'GAME') document.getElementById('game-screen').classList.add('active');
+        if (state === 'FINAL') document.getElementById('final-screen').classList.add('active');
+    }
+
+    function flattenWalls(grid) {
+        let walls = [];
+        for (let r = 0; r < 6; r++) {
+            for (let c = 0; c < 6; c++) {
+                if (grid[r][c].top) walls.push({ r, c, side: 'top' });
+                if (grid[r][c].bottom) walls.push({ r, c, side: 'bottom' });
+                if (grid[r][c].left) walls.push({ r, c, side: 'left' });
+                if (grid[r][c].right) walls.push({ r, c, side: 'right' });
+            }
+        }
+        return walls;
+    }
+
+    function rebuildGridFromWalls(walls) {
+        let grid = createEmptyGrid();
+        for (let w of walls) {
+            grid[w.r][w.c][w.side] = true;
+        }
+        return grid;
+    }
+
+    function logEvent(msg, isError = false) {
+        gameLogs.push({ msg, isError });
+        if (gameLogs.length > 5) gameLogs.shift();
+        const box = document.getElementById('game-logs');
+        box.innerHTML = gameLogs.map(l => `<div class="${l.isError ? 'error' : ''}">> ${l.msg}</div>`).join('');
+    }
+
+    function updatePrepUI() {
+        document.querySelectorAll('#prep-screen .toolbar .btn').forEach(b => b.classList.remove('active'));
+        document.getElementById('mode-' + prepMode.toLowerCase()).classList.add('active');
+        document.getElementById('wall-counter').innerText = `СТЕН: ${myWallCount} / 20`;
+        if (myWallCount >= 20 && prepMode === 'WALL') {
+            document.getElementById('mode-wall').disabled = true;
+            prepMode = 'O';
+            updatePrepUI();
+        } else {
+            document.getElementById('mode-wall').disabled = false;
+        }
+    }
+
+    document.getElementById('mode-o').addEventListener('click', () => { prepMode = 'O'; updatePrepUI(); });
+    document.getElementById('mode-x').addEventListener('click', () => { prepMode = 'X'; updatePrepUI(); });
+    document.getElementById('mode-wall').addEventListener('click', () => { prepMode = 'WALL'; updatePrepUI(); });
+
+    function renderPrep() {
+        const container = document.getElementById('prep-grid');
+        container.innerHTML = '';
+        for (let r = 0; r < 6; r++) {
+            for (let c = 0; c < 6; c++) {
+                let cell = document.createElement('div');
+                cell.className = 'cell';
+                if (myEntry.r === r && myEntry.c === c) cell.innerHTML = 'O';
+                if (myExit.r === r && myExit.c === c) cell.innerHTML = 'X';
+
+                if (myGrid[r][c].top) cell.appendChild(createWallVis('top'));
+                if (myGrid[r][c].bottom) cell.appendChild(createWallVis('bottom'));
+                if (myGrid[r][c].left) cell.appendChild(createWallVis('left'));
+                if (myGrid[r][c].right) cell.appendChild(createWallVis('right'));
+
+                let zTop = createZone(r, c, 'top');
+                let zBottom = createZone(r, c, 'bottom');
+                let zLeft = createZone(r, c, 'left');
+                let zRight = createZone(r, c, 'right');
+
+                [zTop, zBottom, zLeft, zRight].forEach(z => {
+                    z.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        if (prepMode !== 'WALL' || myReady) return;
+                        toggleWall(r, c, z.dataset.dir);
+                    });
+                });
+
+                cell.append(zTop, zBottom, zLeft, zRight);
+
+                cell.addEventListener('click', () => {
+                    if (prepMode === 'WALL' || myReady) return;
+                    if (prepMode === 'O') {
+                        if (myEntry.r === r && myEntry.c === c) myEntry = { r: -1, c: -1 };
+                        else if (myExit.r !== r || myExit.c !== c) myEntry = { r, c };
+                    } else if (prepMode === 'X') {
+                        if (myExit.r === r && myExit.c === c) myExit = { r: -1, c: -1 };
+                        else if (myEntry.r !== r || myEntry.c !== c) myExit = { r, c };
+                    }
+                    renderPrep();
+                });
+                container.appendChild(cell);
+            }
+        }
+    }
+
+    function createWallVis(dir) {
+        let w = document.createElement('div');
+        w.className = `wall-vis wall-${dir}`;
+        return w;
+    }
+
+    function createZone(r, c, dir) {
+        let z = document.createElement('div');
+        z.className = `zone zone-${dir}`;
+        z.dataset.dir = dir;
+        return z;
+    }
+
+    function toggleWall(r, c, dir) {
+        let nr = r, nc = c, oppDir = '';
+        if (dir === 'top') { nr--; oppDir = 'bottom'; }
+        if (dir === 'bottom') { nr++; oppDir = 'top'; }
+        if (dir === 'left') { nc--; oppDir = 'right'; }
+        if (dir === 'right') { nc++; oppDir = 'left'; }
+
+        let isSet = myGrid[r][c][dir];
+        if (!isSet && myWallCount >= 20) return;
+
+        myGrid[r][c][dir] = !isSet;
+        if (nr >= 0 && nr < 6 && nc >= 0 && nc < 6) {
+            myGrid[nr][nc][oppDir] = !isSet;
+        }
+        myWallCount += !isSet ? 1 : -1;
+        updatePrepUI();
+        renderPrep();
+    }
+
+    function validateBFS() {
+        if (myEntry.r === -1 || myExit.r === -1) return false;
+        let visited = Array(6).fill(0).map(() => Array(6).fill(false));
+        let q = [{ r: myEntry.r, c: myEntry.c }];
+        visited[myEntry.r][myEntry.c] = true;
+
+        while (q.length > 0) {
+            let cur = q.shift();
+            if (cur.r === myExit.r && cur.c === myExit.c) return true;
+            let r = cur.r, c = cur.c;
+            let walls = myGrid[r][c];
+            let neighbors = [];
+
+            if (!walls.top && r > 0) neighbors.push({ r: r - 1, c });
+            if (!walls.bottom && r < 5) neighbors.push({ r: r + 1, c });
+            if (!walls.left && c > 0) neighbors.push({ r, c: c - 1 });
+            if (!walls.right && c < 5) neighbors.push({ r, c: c + 1 });
+
+            for (let n of neighbors) {
+                if (!visited[n.r][n.c]) {
+                    visited[n.r][n.c] = true;
+                    q.push(n);
+                }
+            }
+        }
+        return false;
+    }
+
+    document.getElementById('btn-ready').addEventListener('click', () => {
+        let err = document.getElementById('prep-error');
+        if (myEntry.r === -1 || myExit.r === -1) {
+            err.innerText = "ОШИБКА: Установите ВХОД (O) и ВЫХОД (X)";
+            return;
+        }
+        if (!validateBFS()) {
+            err.innerText = "ОШИБКА: Нет пути от O до X!";
+            return;
+        }
+        err.innerText = "";
+        myReady = true;
+        document.getElementById('btn-ready').disabled = true;
+        document.getElementById('prep-status').innerText = "Ожидание соперника...";
+        
+        conn.send({
+            type: 'ready',
+            entry: myEntry,
+            exit: myExit,
+            walls: flattenWalls(myGrid)
+        });
+        checkGameStart();
+    });
+
+    function checkGameStart() {
+        if (myReady && oppReady) startGame();
+    }
+
+    function startGame() {
+        switchScreen('GAME');
+        myPos = { ...myEntry };
+        oppPos = { ...oppEntry };
+        myPath = [{ ...myPos }];
+        oppPath = [{ ...oppPos }];
+        attackVisited[`${myPos.r},${myPos.c}`] = true;
+        isMyTurn = (role === 'HOST');
+        logEvent("Игра началась!");
+        updateGameHeader();
+        renderGameBoards();
+    }
+
+    function updateGameHeader() {
+        let st = document.getElementById('game-status');
+        if (isMyTurn) {
+            st.innerText = "ВАШ ХОД (Идите до столкновения со стеной)";
+            st.style.color = "#00FF00";
+            st.style.textShadow = "0 0 5px #00FF00";
+        } else {
+            st.innerText = "ХОД СОПЕРНИКА";
+            st.style.color = "#FF0000";
+            st.style.textShadow = "0 0 5px #FF0000";
+        }
+    }
+
+    function renderGameBoards() {
+        renderBoard('attack-grid', oppGrid, true);
+        renderBoard('defense-grid', myGrid, false);
+    }
+
+    function renderBoard(containerId, gridData, isAttack) {
+        const container = document.getElementById(containerId);
+        container.innerHTML = '';
+        for (let r = 0; r < 6; r++) {
+            for (let c = 0; c < 6; c++) {
+                let cell = document.createElement('div');
+                cell.className = 'cell';
+
+                let entryObj = isAttack ? oppEntry : myEntry;
+                let exitObj  = isAttack ? oppExit : myExit;
+                if (entryObj.r === r && entryObj.c === c) cell.innerHTML = 'O';
+                if (exitObj.r === r && exitObj.c === c) cell.innerHTML = 'X';
+
+                if (isAttack && myPos.r === r && myPos.c === c) {
+                    cell.innerHTML += `<div class="player blink">@</div>`;
+                }
+                if (!isAttack && oppPos.r === r && oppPos.c === c) {
+                    cell.innerHTML += `<div class="player blink">@</div>`;
+                }
+
+                if (!isAttack) {
+                    if (gridData[r][c].top) cell.appendChild(createWallVis('top'));
+                    if (gridData[r][c].bottom) cell.appendChild(createWallVis('bottom'));
+                    if (gridData[r][c].left) cell.appendChild(createWallVis('left'));
+                    if (gridData[r][c].right) cell.appendChild(createWallVis('right'));
+                } else {
+                    if (attackDiscoveredWalls[`${r},${c},top`]) cell.appendChild(createWallVis('top'));
+                    if (attackDiscoveredWalls[`${r},${c},bottom`]) cell.appendChild(createWallVis('bottom'));
+                    if (attackDiscoveredWalls[`${r},${c},left`]) cell.appendChild(createWallVis('left'));
+                    if (attackDiscoveredWalls[`${r},${c},right`]) cell.appendChild(createWallVis('right'));
+                    
+                    if (!attackVisited[`${r},${c}`]) cell.classList.add('fog');
+                    else cell.classList.add('cell-visited');
+                }
+                container.appendChild(cell);
+            }
+        }
+    }
+
+    window.addEventListener('keydown', (e) => {
+        if (gameState !== 'GAME' || !isMyTurn) return;
+        let dr = 0, dc = 0;
+        if (e.key === 'ArrowUp') dr = -1;
+        else if (e.key === 'ArrowDown') dr = 1;
+        else if (e.key === 'ArrowLeft') dc = -1;
+        else if (e.key === 'ArrowRight') dc = 1;
+        else return;
+
+        let nr = myPos.r + dr;
+        let nc = myPos.c + dc;
+        if (nr < 0 || nr > 5 || nc < 0 || nc > 5) return;
+        processMoveAttempt(nr, nc, true);
+    });
+
+    function processMoveAttempt(nr, nc, isMe) {
+        let pos = isMe ? myPos : oppPos;
+        let dr = nr - pos.r;
+        let dc = nc - pos.c;
+
+        let dir = '', oppDir = '';
+        if (dr === -1) { dir = 'top'; oppDir = 'bottom'; }
+        if (dr === 1) { dir = 'bottom'; oppDir = 'top'; }
+        if (dc === -1) { dir = 'left'; oppDir = 'right'; }
+        if (dc === 1) { dir = 'right'; oppDir = 'left'; }
+
+        let targetGrid = isMe ? oppGrid : myGrid;
+        let hitWall = targetGrid[pos.r][pos.c][dir];
+
+        if (isMe) {
+            conn.send({ type: 'move', r: nr, c: nc });
+            if (hitWall) {
+                logEvent("Ты врезался в стену! Ход переходит к сопернику.", true);
+                attackDiscoveredWalls[`${pos.r},${pos.c},${dir}`] = true;
+                if (nr >= 0 && nr < 6 && nc >= 0 && nc < 6) {
+                    attackDiscoveredWalls[`${nr},${nc},${oppDir}`] = true;
+                }
+                isMyTurn = false;
+            } else {
+                myPos.r = nr; myPos.c = nc;
+                myPath.push({ r: nr, c: nc });
+                attackVisited[`${nr},${nc}`] = true;
+                logEvent("Ты сделал шаг.");
+                if (myPos.r === oppExit.r && myPos.c === oppExit.c) {
+                    conn.send({ type: 'win' });
+                    endGame('WIN');
+                    return;
+                }
+            }
+        } else {
+            if (hitWall) {
+                logEvent("Соперник врезался в стену! Твой ход.", true);
+                isMyTurn = true;
+            } else {
+                oppPos.r = nr; oppPos.c = nc;
+                oppPath.push({ r: nr, c: nc });
+                logEvent("Соперник сделал шаг.");
+            }
+        }
+        updateGameHeader();
+        renderGameBoards();
+    }
+
+    function handleOpponentMove(r, c) {
+        processMoveAttempt(r, c, false);
+    }
+
+    function endGame(result) {
+        switchScreen('FINAL');
+        let title = document.getElementById('final-title');
+        title.innerText = result === 'WIN' ? 'ПОБЕДА' : 'ПОРАЖЕНИЕ';
+        title.style.color = result === 'WIN' ? '#00FF00' : '#FF0000';
+        title.style.textShadow = result === 'WIN' ? '0 0 10px #00FF00' : '0 0 10px #FF0000';
+
+        let p1Maze = role === 'HOST' ? { grid: myGrid, entry: myEntry, exit: myExit } : { grid: oppGrid, entry: oppEntry, exit: oppExit };
+        let p2Maze = role === 'CLIENT' ? { grid: myGrid, entry: myEntry, exit: myExit } : { grid: oppGrid, entry: oppEntry, exit: oppExit };
+        let p1Path = role === 'HOST' ? myPath : oppPath;
+        let p2Path = role === 'CLIENT' ? myPath : oppPath;
+
+        renderFinalBoard('final-grid-1', p1Maze, p2Path, 'path-p2'); 
+        renderFinalBoard('final-grid-2', p2Maze, p1Path, 'path-p1'); 
+    }
+
+    function renderFinalBoard(containerId, mazeData, pathData, pathClass) {
+        const container = document.getElementById(containerId);
+        container.innerHTML = '';
+        for (let r = 0; r < 6; r++) {
+            for (let c = 0; c < 6; c++) {
+                let cell = document.createElement('div');
+                cell.className = 'cell';
+                let inPath = pathData.some(p => p.r === r && p.c === c);
+                if (inPath) cell.classList.add(pathClass);
+
+                if (mazeData.entry.r === r && mazeData.entry.c === c) cell.innerHTML = 'O';
+                if (mazeData.exit.r === r && mazeData.exit.c === c) cell.innerHTML = 'X';
+
+                if (mazeData.grid[r][c].top) cell.appendChild(createWallVis('top'));
+                if (mazeData.grid[r][c].bottom) cell.appendChild(createWallVis('bottom'));
+                if (mazeData.grid[r][c].left) cell.appendChild(createWallVis('left'));
+                if (mazeData.grid[r][c].right) cell.appendChild(createWallVis('right'));
+                container.appendChild(cell);
+            }
+        }
+    }
+
+    document.getElementById('btn-rematch').addEventListener('click', () => {
+        myReady = false; 
+        document.getElementById('btn-rematch').disabled = true;
+        document.getElementById('final-status').innerText = 'Ожидание соперника...';
+        conn.send({ type: 'rematch' });
+        if (oppReady === false) startRematch();
+    });
+
+    function startRematch() {
+        resetGameState();
+        switchScreen('PREP');
+        renderPrep();
+    }
+</script>
+</body>
+</html>
